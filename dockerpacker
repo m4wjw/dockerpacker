@@ -1,0 +1,174 @@
+#!/bin/bash
+# Editor: Sam
+# version: v1.0
+
+
+
+# parameter
+success=0
+failure=0
+
+# directory and existing checki
+timestamp=$(date +"%s")
+function dir_existing_check(){
+  dir_path=$1
+  # check whether the parameter is a directory or existing.
+  if [ ! -d "$dir_path" -a ! -e "$dir_path" ]
+  then
+    echo "This is not a directory or existing."
+    exit 1
+  fi
+  echo "Directory and existing check passed"
+}
+#dir_existing_check $1
+
+# dockerfile existing check
+function dockerfile_existing_check(){
+  dir_path=$1
+  list_dir=$(ls | grep Dockerfile)
+  if [ -z "$list_dir" ]
+  then
+    echo "Dockerfile doesn't exist in $dir_path."
+    exit 2
+  fi
+  echo "$dir_path Dockerfile existing check passed"
+}
+#dockerfile_existing_check $1
+
+
+# docker build : 
+# 1. normal 
+# 2. verbose
+function docker_build(){
+  dir_path=$1
+  cd $dir_path
+  image_name=$(basename `pwd`)
+  version_tag=$(date +"%Y%m%d-%H%M%S")
+  docker build -t $image_name:$version_tag . >> /tmp/dockerbuild.$timestamp
+  if [ $? -ne 0 ]
+  then
+    echo "Build image $image_name failed"
+    failure=$(($failure+1))
+    cd ..
+  fi
+  success=$(($success+1))
+  cd ..
+}
+function docker_build_verbose(){
+  dir_path=$1
+  cd $dir_path
+  timestamp=$(date +"%s")
+  image_name=$(basename `pwd`)
+  version_tag=$(date +"%Y%m%d-%H%M%S")
+  docker build -t $image_name:$version_tag .
+  if [ $? -ne 0 ]
+  then
+    echo "Build image $image_name failed"
+    failure=$(($failure+1))
+    cd ..
+  fi
+  success=$(($success+1))
+  cd ..
+}
+#docker_build $1
+#docker_build_verbose $1
+
+
+
+# delete old duplicate docker images
+function delete_old_images(){
+  image_name=$1
+  image_id=$(docker images | grep $image_name | awk '{print $3}')
+  if [ ! -z "$image_id" ]
+  then
+    docker rmi -f $image_id >> /tmp/dockerbuild.$timestamp
+  fi
+
+}
+function delete_old_images_verbose(){
+  image_name=$1
+  image_id=$(docker images | grep $image_name | awk '{print $3}')
+  if [ ! -z "$image_id" ]
+  then
+    docker rmi -f $image_id
+  fi
+}
+#delete_old_images_verbose $1
+
+# check the parameters
+dockerfile_root_path=''
+verbose_mode=0
+delete_images=0
+while getopts "f:vd" args
+do
+  case $args in
+    "f")
+      dockerfile_root_path=$OPTARG
+      #echo $dockerfile_root_path
+      ;;
+    "v")
+      verbose_mode=1 
+      ;;
+    "d")
+      delete_images=1
+      ;;
+    *)
+      echo "Erroneous parameter."
+      exit 4
+  esac
+done
+
+#echo "delete_images=$delete_images"
+#echo "verbose_mode=$verbose_mode"
+
+
+# main
+dir_existing_check $dockerfile_root_path
+#echo $dir_existing_check
+dir_list=$(ls $dockerfile_root_path)
+cd $dockerfile_root_path
+for dir in $dir_list
+do
+  cd $dir
+  #echo "pwd: `pwd`=== dir: $dir"
+  dockerfile_existing_check $dir
+  cd ..
+done
+images_list=$(ls $dockerfile_root_path)
+if [ $delete_images -eq 1 ]
+then
+  if [ $verbose_mode -eq 1 ]
+  then
+#    echo 11
+    for image in $images_list
+    do
+      delete_old_images_verbose $image
+      docker_build_verbose $image 
+    done
+  else
+#    echo 10
+    for image in $images_list
+    do
+      delete_old_images $image
+      docker_build $image
+    done
+  fi
+else
+  if [ $verbose_mode -eq 1 ]
+  then
+#    echo 01
+    for image in $images_list
+    do
+      docker_build_verbose $image 
+    done
+  else
+#    echo 00
+    for image in $images_list
+    do
+      docker_build $image
+    done
+  fi
+fi
+echo -e "-------------------------"
+echo -e "\033[1;32mSuccess: $success\033[0m"
+echo -e "\033[31;1mFailure: $failure\033[0m"
